@@ -14,3 +14,9 @@ För att köra applikationen och testa:
    curl -X POST http://localhost:8080/api/v1/embed \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Text to encode goes here.", "text 2 here", " and text 3 here"]}' | jq '{texts, length, vector: .vector[:20]}'
+
+Eller lägg dina texter i filen text2vectorApp/src/main/resources/static/data.json och sen gör en curl så här:
+
+curl -X POST http://localhost:8080/api/v1/embed \
+  -H "Content-Type: application/json" \
+  -d "@data.json" | jq '{texts, length, vector: .vector[:20]}'
