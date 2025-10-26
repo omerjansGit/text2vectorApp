@@ -8,6 +8,7 @@ För att köra applikationen och testa:
    ollama pull nomic-embed-text
 4. starta applikationen i intellij
 5. gör en curl anrop:
+   
    curl -X POST http://localhost:8080/api/v1/embed \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Text to encode goes here.", "text 2 here", " and text 3 here"]}' | jq '{texts, length, vector: .vector[:20]}'
