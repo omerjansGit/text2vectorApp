@@ -4,13 +4,12 @@ import org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAu
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.JdbcClientAutoConfiguration;
 
 @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, PgVectorStoreAutoConfiguration.class})
 public class Text2vectorAppApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(Text2vectorAppApplication.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(Text2vectorAppApplication.class, args);
+    }
 
 }
