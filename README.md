@@ -20,3 +20,25 @@ Eller lägg dina texter i filen text2vectorApp/src/main/resources/static/data.js
 curl -X POST http://localhost:8080/api/v1/embed \
   -H "Content-Type: application/json" \
   -d "@data.json" | jq '{texts, length, vector: .vector[:20]}'
+
+## Usage Examples
+
+### Single Document Upload
+```bash
+curl -X POST http://localhost:8080/api/v1/embed/document \
+  -F "file=@document.pdf"
+  
+curl -X POST http://localhost:8080/api/v1/embed/document \
+  -F "file=@document.docx"
+  
+curl -X POST http://localhost:8080/api/v1/embed/document \
+  -F "file=@document.txt"
+```
+
+### Multiple Mixed File Types
+```bash
+curl -X POST http://localhost:8080/api/v1/embed/documents \
+  -F "files=@document1.pdf" \
+  -F "files=@document2.docx" \
+  -F "files=@document3.txt"
+```
