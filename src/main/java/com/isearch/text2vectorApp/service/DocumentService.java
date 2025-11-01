@@ -1,27 +1,41 @@
 package com.isearch.text2vectorApp.service;
 
 import com.isearch.text2vectorApp.exception.EmbeddingServiceException;
-import com.isearch.text2vectorApp.util.CustomPagedPdfDocumentReader;
+import com.isearch.text2vectorApp.util.DocumentReaderFactory;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.embedding.*;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.EmbeddingOptionsBuilder;
+import org.springframework.ai.embedding.EmbeddingResponse;
+import org.springframework.ai.embedding.TokenCountBatchingStrategy;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * Service for generating embeddings from text and various document types.
+ * Supports PDF, DOCX, and TXT files.
+ */
 @Service
 public class DocumentService {
 
     private final EmbeddingModel model;
-    private final CustomPagedPdfDocumentReader pdfReader;
+    private final DocumentReaderFactory documentReaderFactory;
 
-    public DocumentService(EmbeddingModel model, CustomPagedPdfDocumentReader pdfReader) {
+
+    public DocumentService(EmbeddingModel model,
+                           DocumentReaderFactory documentReaderFactory) {
         this.model = model;
-        this.pdfReader = pdfReader;
+        this.documentReaderFactory = documentReaderFactory;
     }
 
+    /**
+     * Generates embedding from a list of text strings.
+     *
+     * @param texts list of text strings
+     * @return embedding vector
+     */
     public float[] generateEmbedding(List<String> texts) {
-
         try {
             EmbeddingResponse response = model.embedForResponse(texts);
 
@@ -35,27 +49,45 @@ public class DocumentService {
         }
     }
 
-    public List<List<float[]>> generateEmbeddingsFromPdfs(List<Resource> pdfResources) {
-        return pdfResources.stream()
-                .map(this::generateEmbeddingsFromPdf)
-                .toList();
-    }
-
-    public List<float[]> generateEmbeddingsFromPdf(Resource pdfResource) {
+    /**
+     * Generates embeddings from a single document of any supported type.
+     *
+     * @param resource the document resource
+     * @return list of embedding vectors (one per document chunk)
+     */
+    public List<float[]> generateEmbeddingsFromDocument(Resource resource) {
         try {
-            List<Document> documents = pdfReader.getDocsFromPdf(pdfResource);
+            var reader = documentReaderFactory.getReader(resource);
+            List<Document> documents = reader.read(resource);
 
             if (documents.isEmpty()) {
-                throw new EmbeddingServiceException("Could not extract text from the PDF.");
+                throw new EmbeddingServiceException(
+                        "Could not extract text from the document: " + resource.getFilename());
             }
 
-            EmbeddingOptions embeddingOptions = EmbeddingOptionsBuilder.builder().build();
-            BatchingStrategy batchingStrategy = new TokenCountBatchingStrategy();
+            var embeddingOptions = EmbeddingOptionsBuilder.builder().build();
+            var batchingStrategy = new TokenCountBatchingStrategy();
 
             return model.embed(documents, embeddingOptions, batchingStrategy);
 
+        } catch (EmbeddingServiceException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new EmbeddingServiceException("Error generating PDF embeddings: " + ex.getMessage(), ex);
+            throw new EmbeddingServiceException(
+                    "Error generating document embeddings: " + ex.getMessage(), ex);
         }
     }
+
+    /**
+     * Generates embeddings from multiple documents of any supported type.
+     *
+     * @param resources list of document resources
+     * @return list of embedding lists (one list per document)
+     */
+    public List<List<float[]>> generateEmbeddingsFromDocuments(List<Resource> resources) {
+        return resources.stream()
+                .map(this::generateEmbeddingsFromDocument)
+                .toList();
+    }
+
 }

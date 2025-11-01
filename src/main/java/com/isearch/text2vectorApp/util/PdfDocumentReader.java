@@ -9,10 +9,14 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
+/**
+ * Document reader implementation for PDF files using Spring AI's PDF reader.
+ */
 @Component
-public class CustomPagedPdfDocumentReader {
+public class PdfDocumentReader implements DocumentReader {
 
-    public List<Document> getDocsFromPdf(Resource pdfResource) {
+    @Override
+    public List<Document> read(Resource pdfResource) {
 
         PagePdfDocumentReader pdfReader = new PagePdfDocumentReader(pdfResource,
                 PdfDocumentReaderConfig.builder()

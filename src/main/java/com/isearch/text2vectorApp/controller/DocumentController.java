@@ -1,21 +1,26 @@
 package com.isearch.text2vectorApp.controller;
 
 import com.isearch.text2vectorApp.exception.EmbeddingServiceException;
+import com.isearch.text2vectorApp.model.DocumentEmbeddingResponse;
 import com.isearch.text2vectorApp.model.DocumentRequest;
-import com.isearch.text2vectorApp.model.PdfEmbeddingResponse;
 import com.isearch.text2vectorApp.service.DocumentService;
+import com.isearch.text2vectorApp.util.FileTypeDetector;
+import com.isearch.text2vectorApp.util.ResourceUtils;
+import jakarta.validation.Valid;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.validation.Valid;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -52,76 +57,85 @@ public class DocumentController {
         );
     }
 
-    // Embed single PDF
-    @PostMapping(value = "/embed/pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> embedPdf(@RequestParam("file") MultipartFile file) {
+    // ========== Unified endpoints for all file types ==========
+    /**
+     * Unified endpoint for embedding a single document of any supported type (PDF, DOCX, TXT).
+     * The file type is automatically detected.
+     *
+     * @param file the document file to embed
+     * @return response with embeddings
+     */
+    @PostMapping(value = "/embed/document", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> embedDocument(@RequestParam("file") MultipartFile file) {
         try {
             if (file.isEmpty()) {
                 return ResponseEntity.badRequest().body("File is empty");
             }
 
-            ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
-                @Override
-                public String getFilename() {
-                    return file.getOriginalFilename();
-                }
-            };
+            String fileType = FileTypeDetector.detectFileType(file);
+            Resource resource = ResourceUtils.toResource(file);
+            List<float[]> embeddings = documentService.generateEmbeddingsFromDocument(resource);
 
-            List<float[]> embeddings = documentService.generateEmbeddingsFromPdf(resource);
+            return ResponseEntity.ok(new DocumentEmbeddingResponse(
+                    file.getOriginalFilename(),
+                    fileType,
+                    embeddings.size(),
+                    embeddings));
 
-            return ResponseEntity.ok().body(
-                    new PdfEmbeddingResponse(file.getOriginalFilename(), embeddings.size(), embeddings)
-            );
-
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body("Invalid file: " + ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.status(500).body("Error embedding PDF: " + ex.getMessage());
+            return ResponseEntity.status(500).body("Error embedding document: " + ex.getMessage());
         }
     }
 
-    // Embed multiple PDF files
-    @PostMapping(value = "/embed/pdfs", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Map<String, Object> embedMultiplePdfs(@RequestParam("files") List<MultipartFile> files) {
-
+    /**
+     * Unified endpoint for embedding multiple documents of any supported types (PDF, DOCX, TXT).
+     * Files can be mixed types - the system will automatically detect and process each one.
+     *
+     * @param files list of document files to embed
+     * @return response with embeddings for all documents
+     */
+    @PostMapping(value = "/embed/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> embedDocuments(@RequestParam("files") List<MultipartFile> files) {
         if (files.isEmpty()) {
-            throw new EmbeddingServiceException("PDF file list is empty");
+            throw new EmbeddingServiceException("File list is empty");
         }
 
         try {
-            // Convert uploaded files to Spring Resources
-            List<Resource> pdfResources = files.stream()
-                    .map(file -> {
-                        try {
-                            return (Resource) new ByteArrayResource(file.getBytes()) {
-                                @Override
-                                public String getFilename() {
-                                    return file.getOriginalFilename();
-                                }
-                            };
-                        } catch (IOException e) {
-                            throw new EmbeddingServiceException("Failed to read file: " + file.getOriginalFilename(), e);
-                        }
-                    })
-                    .toList();
+            // Convert uploaded files to Spring Resources and detect file types
+            List<Resource> resources = new ArrayList<>();
+            List<String> fileTypes = new ArrayList<>();
 
-            // Delegate all embedding logic to the service
-            List<List<float[]>> allEmbeddings = documentService.generateEmbeddingsFromPdfs(pdfResources);
+            for (MultipartFile file : files) {
+                if (file.isEmpty()) {
+                    throw new EmbeddingServiceException("One or more files are empty");
+                }
+                fileTypes.add(FileTypeDetector.detectFileType(file));
+                resources.add(ResourceUtils.toResource(file));
+            }
 
-            // Combine results (filename + vectors)
+            // Generate embeddings for all documents
+            List<List<float[]>> allEmbeddings = documentService.generateEmbeddingsFromDocuments(resources);
+
+            // Build results
             List<Map<String, Object>> results = new ArrayList<>();
-            for (int i = 0; i < pdfResources.size(); i++) {
-                Resource res = pdfResources.get(i);
-                List<float[]> vectors = allEmbeddings.get(i);
+            for (int i = 0; i < resources.size(); i++) {
+                Resource res = resources.get(i);
                 results.add(Map.of(
                         "filename", Objects.requireNonNull(res.getFilename()),
-                        "pages", vectors.size(),
-                        "vectors", vectors
+                        "fileType", fileTypes.get(i),
+                        "chunks", allEmbeddings.get(i).size(),
+                        "vectors", allEmbeddings.get(i)
                 ));
             }
 
             return Map.of("files", results);
 
+        } catch (IllegalArgumentException ex) {
+            throw new EmbeddingServiceException("Invalid file: " + ex.getMessage(), ex);
         } catch (Exception ex) {
-            throw new EmbeddingServiceException("Error embedding PDFs: " + ex.getMessage(), ex);
+            throw new EmbeddingServiceException("Error embedding documents: " + ex.getMessage(), ex);
         }
     }
 }
