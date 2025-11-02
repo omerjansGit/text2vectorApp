@@ -2,11 +2,13 @@ package com.isearch.text2vectorApp.service;
 
 import com.isearch.text2vectorApp.exception.EmbeddingServiceException;
 import com.isearch.text2vectorApp.util.DocumentReaderFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingOptionsBuilder;
 import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.ai.embedding.TokenCountBatchingStrategy;
+import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
@@ -17,16 +19,19 @@ import java.util.List;
  * Supports PDF, DOCX, and TXT files.
  */
 @Service
+@Slf4j
 public class DocumentService {
 
     private final EmbeddingModel model;
     private final DocumentReaderFactory documentReaderFactory;
+    private final TokenCountEstimator tokenCountEstimator;
 
 
     public DocumentService(EmbeddingModel model,
-                           DocumentReaderFactory documentReaderFactory) {
+                           DocumentReaderFactory documentReaderFactory, TokenCountEstimator tokenCountEstimator) {
         this.model = model;
         this.documentReaderFactory = documentReaderFactory;
+        this.tokenCountEstimator = tokenCountEstimator;
     }
 
     /**
@@ -63,6 +68,26 @@ public class DocumentService {
             if (documents.isEmpty()) {
                 throw new EmbeddingServiceException(
                         "Could not extract text from the document: " + resource.getFilename());
+            }
+
+            // Calculate accurate token counts using Spring AI's TokenCountEstimator
+            int totalTokens = 0;
+            int maxChunkTokens = 0;
+            for (Document doc : documents) {
+                int chunkTokens = tokenCountEstimator.estimate(doc.getText());
+                totalTokens += chunkTokens;
+                maxChunkTokens = Math.max(maxChunkTokens, chunkTokens);
+            }
+
+            String filename = resource.getFilename() != null ? resource.getFilename() : "unknown";
+            log.info("Document: {} | Chunks: {} | Total tokens: {} | Max chunk tokens: {} | Context limit: 8192",
+                    filename, documents.size(), totalTokens, maxChunkTokens);
+
+            if (maxChunkTokens > 8192) {
+                log.warn("WARNING: Document '{}' has chunk with {} tokens, exceeding context limit of 8192. May cause EOF errors.", filename, maxChunkTokens);
+            }
+            if (totalTokens > 8192 && maxChunkTokens <= 8192) {
+                log.info("INFO: Document '{}' has total {} tokens. Batching strategy will split into multiple requests.", filename, totalTokens);
             }
 
             var embeddingOptions = EmbeddingOptionsBuilder.builder().build();
